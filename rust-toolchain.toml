@@ -1,0 +1,3 @@
+[toolchain]
+channel = "stable"
+targets = [ "aarch64-unknown-linux-gnu", "arm-unknown-linux-musleabi", "x86_64-unknown-linux-gnu" ]
