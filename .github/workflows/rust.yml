@@ -1,33 +1,27 @@
 on: [push]
 
-name: ARMv7 build
+name: ARM builds
 
 jobs:
   linux_arm7:
     name: Linux ARM builds
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ["aarch64-unknown-linux-gnu", "arm-unknown-linux-musleabi"]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
-      - name: armv6 build
+        with:
+          target: ${{ matrix.target }}
+      - name: ${{ matrix.target }} build
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: build
-          args: --release --target arm-unknown-linux-musleabi
+          args: --release --target ${{ matrix.target }}
       - run: ls -lah target/*
       - uses: actions/upload-artifact@v2
         with:
-          name: http-gpio-armv6
-          path: target/release/http-gpio
-      - name: aarch64 build
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --target aarch64-unknown-linux-gnu
-      - run: ls -lah target/*
-      - uses: actions/upload-artifact@v2
-        with:
-          name: http-gpio-armv6
+          name: http-gpio-${{ matrix.target }}
           path: target/release/http-gpio
