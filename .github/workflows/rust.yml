@@ -21,8 +21,8 @@ jobs:
           use-cross: true
           command: build
           args: --release --target ${{ matrix.target }}
-      - run: ls -lah target/*
+      - run: ls -lah target/*/*
       - uses: actions/upload-artifact@v2
         with:
           name: http-gpio-${{ matrix.target }}
-          path: target/release/http-gpio
+          path: target/${{ matrix.target }}/release/http-gpio
