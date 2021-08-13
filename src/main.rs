@@ -1,14 +1,16 @@
-use gpio_cdev::{Chip, LineRequestFlags};
-use serde::{Serialize, Deserialize};
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry::*;
-use std::sync::{Arc, RwLock};
-use warp::{Filter, http::StatusCode};
+use std::sync::Arc;
+use serde::Serialize;
+use warp::{Filter, Reply};
+use warp::http::StatusCode;
+use warp::reply::{json, with_status};
+
+use application_state::{AppResult, GpioPath, State};
+
+mod application_state;
 
 #[tokio::main]
 async fn main() {
-    let active_pins = BTreeMap::<GpioPath, Chip>::new();
-    let shared_pins_state = Arc::new(RwLock::new(active_pins));
+    let shared_pins_state = Arc::new(State::new());
     let with_pins_state = warp::any().map(move || shared_pins_state.clone());
 
     let gpio_hello = warp::path!("gpio")
@@ -16,12 +18,12 @@ async fn main() {
 
     let gpio_modify = warp::post()
         .and(warp::path!("gpio" / String / u32))
+        .map(GpioPath::new)
         .and(with_pins_state)
-        /* 1KB should be enough for anyone */
-        .and(warp::body::content_length_limit(1024))
+        .and(warp::body::content_length_limit(10))
         .and(warp::body::json())
-        .map(gpio_modify)
-        .map(as_reply);
+        .map(|gpio_path, state: Arc<State>, body| state.write(gpio_path, body))
+        .map(create_http_response);
 
     let routes = gpio_hello.or(gpio_modify);
 
@@ -30,50 +32,10 @@ async fn main() {
         .await;
 }
 
-#[derive(Serialize,Deserialize,Debug)]
-enum GpioCmd {
-    In,
-    Out {
-        value: bool,
-    },
-}
-
-type GpioPath = (String, u32);
-type GpioModifyResult = Result<(), gpio_cdev::errors::Error>;
-
-fn gpio_modify(chip: String, pin: u32,
-               pins: Arc<RwLock<BTreeMap<GpioPath, Chip>>>,
-               body: GpioCmd)
-    -> GpioModifyResult
-{
-    // Lock the global map of pins so we can have exclusive access
-    // to the mut methods on it and its Chips.
-    let mut shared_pins = pins.write().unwrap();
-    let mut our_pin_entry = shared_pins.entry((chip.clone(), pin));
-    let chipdev = match our_pin_entry {
-        Occupied(ref mut entry) => entry.get_mut(),
-        Vacant(entry) => entry.insert(Chip::new(format!("/dev/{}", chip))?)
-    };
-
-    let line = chipdev.get_line(pin)?;
-    match body {
-        GpioCmd::Out { value } => {
-            line.request(LineRequestFlags::OUTPUT, 0, "http-gpio")?
-                .set_value(value as u8)
-        }
-        GpioCmd::In => {
-            line.request(LineRequestFlags::INPUT, 0, "http-gpio")?;
-            Ok(())
-        }
-    }
-}
-
-fn as_reply(value: GpioModifyResult) -> Box<dyn warp::Reply> {
-    // Return if success, or stringify the error if not
-    match value {
-        Ok(_) => Box::new("Success"),
-        Err(err) => Box::new(
-            warp::reply::with_status(err.to_string(),
-                                     StatusCode::INTERNAL_SERVER_ERROR))
-    }
+fn create_http_response<O: Serialize>(r: AppResult<O>) -> impl warp::Reply {
+    let status = if r.is_err() { StatusCode::INTERNAL_SERVER_ERROR } else { StatusCode::OK };
+    let body: Box<dyn Reply> = r
+        .map(|o| Box::new(json(&o)) as Box<dyn Reply>)
+        .unwrap_or_else(|err| Box::new(err.to_string()));
+    with_status(body, status)
 }
