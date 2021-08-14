@@ -8,6 +8,6 @@ edition = "2018"
 
 [dependencies]
 gpio-cdev = "0.2"
-serde = { version = "1.0.105", features = ["derive"] }
-tokio = { version = "0.2", features = ["macros"] }
-warp = "0.2"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+warp = "0.3"
