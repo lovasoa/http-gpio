@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use gpio_cdev::{Chip, LineHandle, LineRequestFlags};
 use gpio_cdev::errors::Error;
@@ -42,12 +42,12 @@ impl Display for AppError {
 impl std::error::Error for AppError {}
 
 pub struct State {
-    pins: RwLock<HashMap<GpioPath, LineHandle>>,
+    pins: RwLock<HashMap<GpioPath, Arc<LineHandle>>>,
 }
 
 impl State {
     pub fn new() -> Self {
-        let active_pins = HashMap::<GpioPath, LineHandle>::new();
+        let active_pins = HashMap::<GpioPath, Arc<LineHandle>>::new();
         Self {
             pins: RwLock::new(active_pins)
         }
@@ -61,16 +61,18 @@ impl State {
         where F: Fn(&LineHandle) -> Result<O, E>,
               AppError: From<E> {
         debug!("Trying to acquire a read lock on pins");
-        let pins = self.pins.read().unwrap();
-        if let Some(handle) = pins.get(&gpio_path) {
-            if let Ok(r) = action(handle) {
-                debug!("Action succeeded with pre-existing pin handle");
-                return Ok(r); // Happy path, no write lock
+        { // Read lock
+            let pins = self.pins.read().unwrap();
+            if let Some(handle) = pins.get(&gpio_path) {
+                if let Ok(r) = action(handle) {
+                    debug!("Action succeeded with pre-existing pin handle");
+                    return Ok(r); // Happy path, no write lock
+                } else {
+                    debug!("Action failed with pre-existing pin handle");
+                }
             } else {
-                debug!("Action failed with pre-existing pin handle");
+                debug!("No pre-existing pin handle")
             }
-        } else {
-            debug!("No pre-existing pin handle")
         }
         info!("Opening device {}", gpio_path.chip);
         let device_path = format!("/dev/{}", gpio_path.chip); // Sad path, open a new line handle
@@ -79,11 +81,14 @@ impl State {
         let line = chip.get_line(gpio_path.pin)?;
         info!("Making an {:?} request", flags);
         let handle = line.request(flags, 0, "http-gpio")?;
-        let mut pins = self.pins.write().unwrap();
+        let arc_handle = Arc::new(handle);
+        { // Application state is locked
+            let mut pins = self.pins.write().unwrap();
+            debug!("Saving the pin handle for later");
+            pins.insert(gpio_path, Arc::clone(&arc_handle));
+        }
         debug!("Performing action");
-        let result = action(&handle)?;
-        debug!("Saving the pin handle for later");
-        pins.insert(gpio_path, handle);
+        let result = action(&arc_handle)?;
         Ok(result)
     }
 
