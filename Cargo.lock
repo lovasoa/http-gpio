@@ -390,6 +390,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "gpio-cdev",
+ "log",
  "serde",
  "tokio",
  "warp",

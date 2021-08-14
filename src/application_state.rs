@@ -4,6 +4,7 @@ use std::sync::RwLock;
 
 use gpio_cdev::{Chip, LineHandle, LineRequestFlags};
 use gpio_cdev::errors::Error;
+use log::{debug, info};
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Clone)]
 pub struct GpioPath {
@@ -59,19 +60,29 @@ impl State {
     fn do_with_handle<F, O, E>(&self, gpio_path: GpioPath, flags: LineRequestFlags, action: F) -> AppResult<O>
         where F: Fn(&LineHandle) -> Result<O, E>,
               AppError: From<E> {
-        // Get a line handle that was created before
+        debug!("Trying to acquire a read lock on pins");
         let pins = self.pins.read().unwrap();
         if let Some(handle) = pins.get(&gpio_path) {
             if let Ok(r) = action(handle) {
+                debug!("Action succeeded with pre-existing pin handle");
                 return Ok(r); // Happy path, no write lock
+            } else {
+                debug!("Action failed with pre-existing pin handle");
             }
+        } else {
+            debug!("No pre-existing pin handle")
         }
+        info!("Opening device {}", gpio_path.chip);
         let device_path = format!("/dev/{}", gpio_path.chip); // Sad path, open a new line handle
         let mut chip = Chip::new(device_path)?;
+        info!("Getting pin {}", gpio_path.pin);
         let line = chip.get_line(gpio_path.pin)?;
+        info!("Making an {:?} request", flags);
         let handle = line.request(flags, 0, "http-gpio")?;
         let mut pins = self.pins.write().unwrap();
+        debug!("Performing action");
         let result = action(&handle)?;
+        debug!("Saving the pin handle for later");
         pins.insert(gpio_path, handle);
         Ok(result)
     }

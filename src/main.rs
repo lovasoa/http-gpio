@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -11,15 +12,19 @@ mod application_state;
 
 #[tokio::main]
 async fn main() {
+    env_logger::Builder::from_env(
+    env_logger::Env::default().filter_or("LOG", "INFO")
+    ).init();
+
     let shared_pins_state = Arc::new(State::new());
-
-
     let routes =
         gpio_get(shared_pins_state.clone())
-            .or(gpio_post(shared_pins_state.clone()));
+            .or(gpio_post(shared_pins_state.clone()))
+            .with(warp::log("http-gpio"));
 
+    let addr: SocketAddr = ([127, 0, 0, 1], 3030).into();
     warp::serve(routes)
-        .run(([127, 0, 0, 1], 3030))
+        .run(addr)
         .await;
 }
 
