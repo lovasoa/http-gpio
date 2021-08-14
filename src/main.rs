@@ -9,7 +9,7 @@ use warp::Filter;
 
 use application_state::{AppResult, GpioPath, State};
 
-use crate::application_state::{list_chips, list_pins};
+use crate::application_state::{list_chips, list_pins, single_pin_description};
 
 mod application_state;
 
@@ -20,6 +20,7 @@ async fn main() {
     let shared_pins_state = Arc::new(State::new());
     let routes = gpio_list()
         .or(gpio_pin_list())
+        .or(gpio_pin_description())
         .or(gpio_get(shared_pins_state.clone()))
         .or(gpio_post(shared_pins_state.clone()))
         .with(warp::log("http-gpio"));
@@ -42,10 +43,17 @@ fn gpio_pin_list() -> impl Filter<Extract = impl warp::Reply, Error = warp::Reje
         .map(create_http_response)
 }
 
-fn gpio_path(
+fn gpio_pin_description() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path!("gpio" / String / u32)
+        .map(GpioPath::new)
+        .map(single_pin_description)
+        .map(create_http_response)
+}
+
+fn gpio_value_path(
     shared_pins_state: StateRef,
 ) -> impl Filter<Extract = (GpioPath, StateRef), Error = warp::Rejection> + Clone {
-    warp::path!("gpio" / String / u32)
+    warp::path!("gpio" / String / u32 / "value")
         .map(GpioPath::new)
         .and(warp::any().map(move || shared_pins_state.clone()))
 }
@@ -53,7 +61,7 @@ fn gpio_path(
 fn gpio_post(
     state: StateRef,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    gpio_path(state)
+    gpio_value_path(state)
         .and(warp::post())
         .and(warp::body::content_length_limit(10))
         .and(warp::body::json())
@@ -64,7 +72,7 @@ fn gpio_post(
 fn gpio_get(
     state: StateRef,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    gpio_path(state)
+    gpio_value_path(state)
         .and(warp::get())
         .map(|gpio_path, state: Arc<State>| state.read(gpio_path))
         .map(create_http_response)

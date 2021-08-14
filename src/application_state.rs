@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, RwLock};
 
+use gpio_cdev::{Chip, chips, LineDirection, LineHandle, LineInfo, LineRequestFlags};
 use gpio_cdev::errors::Error;
-use gpio_cdev::{chips, Chip, LineDirection, LineHandle, LineInfo, LineRequestFlags};
 use log::{debug, error, info};
 use serde::Serialize;
 
@@ -146,6 +146,13 @@ pub fn list_pins(chip_name: String) -> AppResult<Vec<GpioPinDescription>> {
             }
         })
         .collect())
+}
+
+pub fn single_pin_description(gpio_pin: GpioPath) -> AppResult<GpioPinDescription> {
+    let mut chip = Chip::new(format!("/dev/{}", gpio_pin.chip))?;
+    let line = chip.get_line(gpio_pin.pin)?;
+    let info = line.info()?;
+    Ok(GpioPinDescription::new(info))
 }
 
 #[derive(Serialize)]
