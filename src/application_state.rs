@@ -76,7 +76,8 @@ impl State {
                     debug!("Action succeeded with pre-existing pin handle");
                     return Ok(r); // Happy path, no write lock
                 } else {
-                    debug!("Action failed with pre-existing pin handle");
+                    debug!("Action failed with pre-existing pin handle; freeing it");
+                    self.pins.write().unwrap().remove(&gpio_path);
                 }
             } else {
                 debug!("No pre-existing pin handle")
