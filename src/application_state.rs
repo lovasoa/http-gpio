@@ -66,23 +66,33 @@ impl State {
     where
         F: Fn(&LineHandle) -> Result<O, E>,
         AppError: From<E>,
+        E: Display,
     {
         debug!("Trying to acquire a read lock on pins");
         {
             // Read lock
             let pins = self.pins.read().unwrap();
             if let Some(handle) = pins.get(&gpio_path) {
-                if let Ok(r) = action(handle) {
-                    debug!("Action succeeded with pre-existing pin handle");
-                    return Ok(r); // Happy path, no write lock
-                } else {
-                    debug!("Action failed with pre-existing pin handle; freeing it");
-                    self.pins.write().unwrap().remove(&gpio_path);
+                match action(handle) {
+                    Ok(res) => {
+                        debug!("Action succeeded with pre-existing pin handle");
+                        return Ok(res); // Happy path, no write lock
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Action failed with pre-existing pin handle ({}); freeing it",
+                            e
+                        );
+                    }
                 }
             } else {
                 debug!("No pre-existing pin handle")
             }
         }
+        // slow path, application state is locked
+        let mut pins = self.pins.write().unwrap();
+        // drop the old line handle if it exists
+        pins.remove(&gpio_path);
         info!("Opening device {}", gpio_path.chip);
         let device_path = format!("/dev/{}", gpio_path.chip); // Sad path, open a new line handle
         let mut chip = Chip::new(device_path)?;
@@ -91,12 +101,10 @@ impl State {
         info!("Making an {:?} request", flags);
         let handle = line.request(flags, 0, "http-gpio")?;
         let arc_handle = Arc::new(handle);
-        {
-            // Application state is locked
-            let mut pins = self.pins.write().unwrap();
-            debug!("Saving the pin handle for later");
-            pins.insert(gpio_path, Arc::clone(&arc_handle));
-        }
+        debug!("Saving the pin handle for later");
+        pins.insert(gpio_path, Arc::clone(&arc_handle));
+        // Release the lock
+        drop(pins);
         debug!("Performing action");
         let result = action(&arc_handle)?;
         Ok(result)

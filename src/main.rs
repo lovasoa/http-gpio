@@ -1,10 +1,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use log::error;
 use serde::Serialize;
 use warp::http::StatusCode;
 use warp::reply::{json, with_status};
-use warp::{Filter, Reply};
+use warp::Filter;
 
 use application_state::{AppResult, GpioPath, State};
 
@@ -69,14 +70,15 @@ fn gpio_get(
         .map(create_http_response)
 }
 
-fn create_http_response<O: Serialize>(r: AppResult<O>) -> impl warp::Reply {
-    let status = if r.is_err() {
-        StatusCode::INTERNAL_SERVER_ERROR
-    } else {
-        StatusCode::OK
-    };
-    let body: Box<dyn Reply> = r
-        .map(|o| Box::new(json(&o)) as Box<dyn Reply>)
-        .unwrap_or_else(|err| Box::new(err.to_string()));
-    with_status(body, status)
+fn create_http_response<O: Serialize>(r: AppResult<O>) -> Box<dyn warp::Reply> {
+    match r {
+        Ok(value) => Box::new(json(&value)),
+        Err(e) => {
+            error!("{}", e);
+            Box::new(with_status(
+                e.to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
 }
