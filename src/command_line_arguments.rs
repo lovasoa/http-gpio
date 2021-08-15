@@ -20,6 +20,8 @@ pub struct CommandLineArguments {
     /// By default, a web page loaded in your browser can only make requests to its own origin.
     /// By using this argument, you allow web pages loaded in browsers which have access to this server
     /// to interact with it.
+    /// Set this to "https://example.com" and you will be able to call this server from javascript
+    /// code on any page of example.com.
     #[structopt(short, long)]
     pub allow_origin: Vec<String>,
 }
