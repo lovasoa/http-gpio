@@ -1,35 +1,45 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::error;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use structopt::StructOpt;
 use warp::{Filter, Rejection};
 use warp::http::StatusCode;
 use warp::hyper::body::Bytes;
 use warp::reply::{json, with_status};
 
 use application_state::{AppResult, GpioPath, State};
-
-use crate::application_state::{list_chips, list_pins, single_pin_description};
+use application_state::{list_chips, list_pins, single_pin_description};
+use command_line_arguments::CommandLineArguments;
 
 mod application_state;
+mod command_line_arguments;
 
 #[tokio::main]
 async fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().filter_or("LOG", "INFO")).init();
+    let opts = CommandLineArguments::from_args();
+    env_logger::Builder::from_env(env_logger::Env::default()
+        .filter_or("LOG", opts.log)
+    ).init();
+
+    let cors = warp::cors()
+        .allow_origins(opts.allow_origin.iter().map(String::as_str))
+        .allow_methods(["GET", "POST"])
+        .build();
 
     let shared_pins_state = Arc::new(State::new());
-    let routes = gpio_list()
-        .or(gpio_pin_list())
-        .or(gpio_pin_description())
-        .or(gpio_get(shared_pins_state.clone()))
-        .or(gpio_post(shared_pins_state.clone()))
-        .or(gpio_blink(shared_pins_state.clone()))
-        .with(warp::log("http-gpio"));
+    let routes =
+        gpio_list()
+            .or(gpio_pin_list())
+            .or(gpio_pin_description())
+            .or(gpio_get(shared_pins_state.clone()))
+            .or(gpio_post(shared_pins_state.clone()))
+            .or(gpio_blink(shared_pins_state.clone()))
+            .with(warp::log("http-gpio"))
+            .with(cors);
 
-    let addr: SocketAddr = ([127, 0, 0, 1], 3030).into();
-    warp::serve(routes).run(addr).await;
+    warp::serve(routes).run(opts.bind).await;
 }
 
 type StateRef = Arc<State>;
