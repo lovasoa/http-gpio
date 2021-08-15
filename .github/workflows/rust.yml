@@ -3,12 +3,12 @@ on: [push]
 name: ARM builds
 
 jobs:
-  linux_arm7:
-    name: Linux ARM builds
-    runs-on: ubuntu-latest
+  cross_compile_linux_binaries:
+    name: Linux builds
+    runs-on: ubuntu-18.04
     strategy:
       matrix:
-        target: ["aarch64-unknown-linux-gnu", "arm-unknown-linux-musleabi"]
+        target: ["aarch64-unknown-linux-gnu", "arm-unknown-linux-musleabi", "x86_64-unknown-linux-gnu"]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
