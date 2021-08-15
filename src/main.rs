@@ -2,10 +2,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use log::error;
+use serde::de::DeserializeOwned;
 use serde::Serialize;
+use warp::{Filter, Rejection};
 use warp::http::StatusCode;
+use warp::hyper::body::Bytes;
 use warp::reply::{json, with_status};
-use warp::Filter;
 
 use application_state::{AppResult, GpioPath, State};
 
@@ -23,6 +25,7 @@ async fn main() {
         .or(gpio_pin_description())
         .or(gpio_get(shared_pins_state.clone()))
         .or(gpio_post(shared_pins_state.clone()))
+        .or(gpio_blink(shared_pins_state.clone()))
         .with(warp::log("http-gpio"));
 
     let addr: SocketAddr = ([127, 0, 0, 1], 3030).into();
@@ -50,29 +53,44 @@ fn gpio_pin_description() -> impl Filter<Extract = impl warp::Reply, Error = war
         .map(create_http_response)
 }
 
-fn gpio_value_path(
+fn gpio_child_path(
     shared_pins_state: StateRef,
-) -> impl Filter<Extract = (GpioPath, StateRef), Error = warp::Rejection> + Clone {
-    warp::path!("gpio" / String / u32 / "value")
+    child: &'static str,
+) -> impl Filter<Extract=(GpioPath, StateRef), Error=warp::Rejection> + Clone {
+    warp::path("gpio")
+        .and(warp::path::param::<String>())
+        .and(warp::path::param::<u32>())
+        .and(warp::path::path(child))
+        .and(warp::path::end())
         .map(GpioPath::new)
         .and(warp::any().map(move || shared_pins_state.clone()))
 }
 
 fn gpio_post(
     state: StateRef,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    gpio_value_path(state)
+) -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
+    gpio_child_path(state, "value")
         .and(warp::post())
-        .and(warp::body::content_length_limit(10))
-        .and(warp::body::json())
+        .and(any_json())
         .map(|gpio_path, state: Arc<State>, body| state.write(gpio_path, body))
+        .map(create_http_response)
+}
+
+fn gpio_blink(
+    state: StateRef,
+) -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
+    gpio_child_path(state, "blink")
+        .and(warp::post())
+        .and(warp::body::content_length_limit(4096))
+        .and(any_json())
+        .map(|gpio_path, state: Arc<State>, body| state.write_schedule(gpio_path, body))
         .map(create_http_response)
 }
 
 fn gpio_get(
     state: StateRef,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    gpio_value_path(state)
+) -> impl Filter<Extract=impl warp::Reply, Error=warp::Rejection> + Clone {
+    gpio_child_path(state, "value")
         .and(warp::get())
         .map(|gpio_path, state: Arc<State>| state.read(gpio_path))
         .map(create_http_response)
@@ -89,4 +107,14 @@ fn create_http_response<O: Serialize>(r: AppResult<O>) -> Box<dyn warp::Reply> {
             ))
         }
     }
+}
+
+pub fn any_json<T: DeserializeOwned + Send>() -> impl Filter<Extract=(T, ), Error=Rejection> + Copy {
+    warp::filters::body::bytes()
+        .and_then(|buf: Bytes| async move {
+            serde_json::from_slice(&buf).map_err(|err| {
+                error!("request json body error: {}", err);
+                warp::reject::reject()
+            })
+        })
 }

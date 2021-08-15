@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::ops::BitXor;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 use gpio_cdev::{Chip, chips, LineDirection, LineHandle, LineInfo, LineRequestFlags};
 use gpio_cdev::errors::Error;
@@ -117,6 +119,21 @@ impl State {
     pub fn write(&self, gpio_path: GpioPath, value: u8) -> AppResult<()> {
         self.do_with_handle(gpio_path, LineRequestFlags::OUTPUT, |line| {
             line.set_value(value)
+        })
+    }
+
+    pub fn write_schedule(&self, gpio_path: GpioPath, schedule: Vec<u16>) -> AppResult<u8> {
+        let pin = gpio_path.pin;
+        info!("Will blink {:?} for a total of {} milliseconds", gpio_path, schedule.iter().sum::<u16>());
+        self.do_with_handle(gpio_path, LineRequestFlags::OUTPUT, |line| -> AppResult<u8>{
+            let mut value = 0;
+            for &time in &schedule {
+                debug!("Setting {} to {}", pin, value);
+                line.set_value(value)?;
+                value = value.bitxor(1);
+                std::thread::sleep(Duration::from_millis(time.into()))
+            }
+            Ok(value)
         })
     }
 }
